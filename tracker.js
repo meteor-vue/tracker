@@ -1,3 +1,5 @@
+import Vue from 'vue';
+
 /////////////////////////////////////////////////////
 // Package docs at http://docs.meteor.com/#tracker //
 /////////////////////////////////////////////////////
@@ -15,7 +17,13 @@ Tracker = {};
  * @locus Client
  * @type {Boolean}
  */
-Tracker.active = false;
+Object.defineProperty(Tracker, 'active', {
+  enumerable: true,
+  configurable: true,
+  get: function () {
+    return !!Vue.observer.Dep.target;
+  }
+});
 
 // http://docs.meteor.com/#tracker_currentcomputation
 
@@ -24,12 +32,27 @@ Tracker.active = false;
  * @locus Client
  * @type {Tracker.Computation}
  */
-Tracker.currentComputation = null;
+Object.defineProperty(Tracker, 'currentComputation', {
+  enumerable: true,
+  configurable: true,
+  get: function () {
+    if (!Vue.observer.Dep.target) {
+      return null;
+    }
 
-var setCurrentComputation = function (c) {
-  Tracker.currentComputation = c;
-  Tracker.active = !! c;
-};
+    if (!Vue.observer.Dep.target._computation) {
+      // Vue.observer.Dep.target._computation is set by the constructor.
+      new Tracker.Computation(null, null, Vue.observer.Dep.target, privateObject);
+    }
+
+    return Vue.observer.Dep.target._computation;
+  }
+});
+
+// `true` if the `_throwFirstError` option was passed in to the call
+// to Tracker.flush that we are in. When set, throw rather than log the
+// first error encountered while flushing.
+var throwFirstError = false;
 
 var _debugFunc = function () {
   // We want this code to work without Meteor, and also without
@@ -57,6 +80,7 @@ var _maybeSuppressMoreLogs = function (messagesLength) {
 
 var _throwOrLog = function (from, e) {
   if (throwFirstError) {
+    throwFirstError = false;
     throw e;
   } else {
     var printArgs = ["Exception from Tracker " + from + " function:"];
@@ -95,41 +119,10 @@ var withNoYieldsAllowed = function (f) {
   }
 };
 
-var nextId = 1;
-// computations whose callbacks we should call at flush time
-var pendingComputations = [];
-// `true` if a Tracker.flush is scheduled, or if we are in Tracker.flush now
-var willFlush = false;
-// `true` if we are in Tracker.flush now
-var inFlush = false;
-// `true` if we are computing a computation now, either first time
-// or recompute.  This matches Tracker.active unless we are inside
-// Tracker.nonreactive, which nullfies currentComputation even though
-// an enclosing computation may still be running.
-var inCompute = false;
-// `true` if the `_throwFirstError` option was passed in to the call
-// to Tracker.flush that we are in. When set, throw rather than log the
-// first error encountered while flushing. Before throwing the error,
-// finish flushing (from a finally block), logging any subsequent
-// errors.
-var throwFirstError = false;
-
-var afterFlushCallbacks = [];
-
-var requireFlush = function () {
-  if (! willFlush) {
-    // We want this code to work without Meteor, see debugFunc above
-    if (typeof Meteor !== "undefined")
-      Meteor._setImmediate(Tracker._runFlush);
-    else
-      setTimeout(Tracker._runFlush, 0);
-    willFlush = true;
-  }
-};
-
-// Tracker.Computation constructor is visible but private
-// (throws an error if you try to call it)
-var constructingComputation = false;
+// Tracker.Computation constructor is private, so we are using this object as a guard.
+// External code cannot access this, and will not be able to directly construct a
+// Tracker.Computation instance.
+var privateObject = {};
 
 //
 // http://docs.meteor.com/#tracker_computation
@@ -143,11 +136,10 @@ var constructingComputation = false;
  * computation.
  * @instancename computation
  */
-Tracker.Computation = function (f, parent, onError) {
-  if (! constructingComputation)
+Tracker.Computation = function (f, onError, watcher, _private) {
+  if (_private !== privateObject)
     throw new Error(
       "Tracker.Computation constructor is private; use Tracker.autorun");
-  constructingComputation = false;
 
   var self = this;
 
@@ -160,7 +152,13 @@ Tracker.Computation = function (f, parent, onError) {
    * @instance
    * @name  stopped
    */
-  self.stopped = false;
+  Object.defineProperty(self, 'stopped', {
+    enumerable: true,
+    configurable: true,
+    get: function () {
+      return !self._vueWatcher.active;
+    }
+  });
 
   // http://docs.meteor.com/#computation_invalidated
 
@@ -184,26 +182,149 @@ Tracker.Computation = function (f, parent, onError) {
    * @name  firstRun
    * @type {Boolean}
    */
-  self.firstRun = true;
+  self._firstRun = true;
+  Object.defineProperty(self, 'firstRun', {
+    enumerable: true,
+    configurable: true,
+    get: function () {
+      if (self._pureWatcher) {
+        throw new Error("Not available for pure watchers.");
+      }
 
-  self._id = nextId++;
+      return self._firstRun;
+    }
+  });
+
+  Object.defineProperty(self, '_id', {
+    enumerable: true,
+    configurable: true,
+    get: function () {
+      return self._vueWatcher.id;
+    }
+  });
+
   self._onInvalidateCallbacks = [];
   self._onStopCallbacks = [];
-  // the plan is at some point to use the parent relation
-  // to constrain the order that computations are processed
-  self._parent = parent;
-  self._func = f;
   self._onError = onError;
   self._recomputing = false;
 
-  var errored = true;
-  try {
-    self._compute();
-    errored = false;
-  } finally {
-    self.firstRun = false;
-    if (errored)
-      self.stop();
+  if (watcher) {
+    if (watcher._computation) {
+      // Should never happen.
+      throw new Error("Duplicate computation for the same pure watcher.");
+    }
+
+    self._vueWatcher = watcher;
+    watcher._computation = self;
+
+    // This computation wrapping an existing (pure) watcher.
+    self._pureWatcher = true;
+  }
+  else {
+    f = withNoYieldsAllowed(f);
+
+    var vm = (Vue.observer.Dep.target && Vue.observer.Dep.target.vm) || {_watchers: [], name: 'Tracker'};
+    self._vueWatcher = new Vue.observer.Watcher(vm, function (vm) {
+      f(self);
+    }, function (value, oldValue) {
+      // Not really used.
+    }, {
+      // We do not set deep so that callback is not really run.
+      deep: false,
+      // So that errors are not handled by the watcher.
+      user: false,
+      // We start lazy, so that it does not compute the value automatically on creation.
+      // We change it later on from outside.
+      lazy: true
+    });
+    self._vueWatcher._computation = self;
+
+    // This computation has been constructed through Tracker.autorun.
+    self._pureWatcher = false;
+  }
+
+  var originalGetter = self._vueWatcher.getter;
+  self._vueWatcher.getter = function () {
+    if (self._pureWatcher || self._firstRun) {
+      self.invalidated = false;
+      return originalGetter.apply(this, arguments);
+    }
+    else {
+      self._recomputing = true;
+      try {
+        if (self._needsRecompute()) {
+          try {
+            self.invalidated = false;
+            return originalGetter.apply(this, arguments);
+          } catch (e) {
+            if (self._onError) {
+              self._onError(e);
+            } else {
+              _throwOrLog("recompute", e);
+            }
+          }
+        }
+      } finally {
+        self._recomputing = false;
+      }
+    }
+  };
+
+  var originalTeardown = self._vueWatcher.teardown;
+  self._vueWatcher.teardown = function () {
+    if (!self.stopped) {
+      originalTeardown.call(this);
+      self.invalidate();
+      for(var i = 0, f; f = self._onStopCallbacks[i]; i++) {
+        Tracker.nonreactive(function () {
+          withNoYieldsAllowed(f)(self);
+        });
+      }
+      self._onStopCallbacks = [];
+    }
+  };
+
+  var originalUpdate = self._vueWatcher.update;
+  self._vueWatcher.update = function () {
+    if (!self.invalidated) {
+      if (self._pureWatcher || !self.stopped) {
+        originalUpdate.call(this);
+      }
+
+      self.invalidated = true;
+
+      // callbacks can't add callbacks, because
+      // self.invalidated === true.
+      for(var i = 0, f; f = self._onInvalidateCallbacks[i]; i++) {
+        Tracker.nonreactive(function () {
+          withNoYieldsAllowed(f)(self);
+        });
+      }
+      self._onInvalidateCallbacks = [];
+    }
+    else if (self._pureWatcher) {
+      originalUpdate.call(this);
+    }
+  };
+
+  if (!self._pureWatcher) {
+    // We started lazy to not run computation before we
+    // prepared everything, now we turn it off.
+    self._vueWatcher.lazy = false;
+    self._vueWatcher.dirty = false;
+
+    // Run computation for the first time.
+    var errored = true;
+    try {
+      self._vueWatcher.run();
+      errored = false;
+    }
+    finally {
+      self._firstRun = false;
+      if (errored) {
+        self.stop();
+      }
+    }
   }
 };
 
@@ -257,25 +378,7 @@ Tracker.Computation.prototype.onStop = function (f) {
  */
 Tracker.Computation.prototype.invalidate = function () {
   var self = this;
-  if (! self.invalidated) {
-    // if we're currently in _recompute(), don't enqueue
-    // ourselves, since we'll rerun immediately anyway.
-    if (! self._recomputing && ! self.stopped) {
-      requireFlush();
-      pendingComputations.push(this);
-    }
-
-    self.invalidated = true;
-
-    // callbacks can't add callbacks, because
-    // self.invalidated === true.
-    for(var i = 0, f; f = self._onInvalidateCallbacks[i]; i++) {
-      Tracker.nonreactive(function () {
-        withNoYieldsAllowed(f)(self);
-      });
-    }
-    self._onInvalidateCallbacks = [];
-  }
+  self._vueWatcher.update();
 };
 
 // http://docs.meteor.com/#computation_stop
@@ -286,59 +389,12 @@ Tracker.Computation.prototype.invalidate = function () {
  */
 Tracker.Computation.prototype.stop = function () {
   var self = this;
-
-  if (! self.stopped) {
-    self.stopped = true;
-    self.invalidate();
-    for(var i = 0, f; f = self._onStopCallbacks[i]; i++) {
-      Tracker.nonreactive(function () {
-        withNoYieldsAllowed(f)(self);
-      });
-    }
-    self._onStopCallbacks = [];
-  }
-};
-
-Tracker.Computation.prototype._compute = function () {
-  var self = this;
-  self.invalidated = false;
-
-  var previous = Tracker.currentComputation;
-  setCurrentComputation(self);
-  var previousInCompute = inCompute;
-  inCompute = true;
-  try {
-    withNoYieldsAllowed(self._func)(self);
-  } finally {
-    setCurrentComputation(previous);
-    inCompute = previousInCompute;
-  }
+  self._vueWatcher.teardown();
 };
 
 Tracker.Computation.prototype._needsRecompute = function () {
   var self = this;
-  return self.invalidated && ! self.stopped;
-};
-
-Tracker.Computation.prototype._recompute = function () {
-  var self = this;
-
-  self._recomputing = true;
-  try {
-    if (self._needsRecompute()) {
-      try {
-        self._compute();
-      } catch (e) {
-        if (self._onError) {
-          self._onError(e);
-        } else {
-          _throwOrLog("recompute", e);
-        }
-      }
-    }
-  } finally {
-    self._recomputing = false;
-  }
+  return self.invalidated && !self.stopped;
 };
 
 /**
@@ -353,7 +409,7 @@ Tracker.Computation.prototype.flush = function () {
   if (self._recomputing)
     return;
 
-  self._recompute();
+  self._vueWatcher.run();
 };
 
 /**
@@ -380,7 +436,7 @@ Tracker.Computation.prototype.run = function () {
  * @instanceName dependency
  */
 Tracker.Dependency = function () {
-  this._dependentsById = {};
+  this._vueDep = new Vue.observer.Dep();
 };
 
 // http://docs.meteor.com/#dependency_depend
@@ -408,15 +464,9 @@ Tracker.Dependency.prototype.depend = function (computation) {
     computation = Tracker.currentComputation;
   }
   var self = this;
-  var id = computation._id;
-  if (! (id in self._dependentsById)) {
-    self._dependentsById[id] = computation;
-    computation.onInvalidate(function () {
-      delete self._dependentsById[id];
-    });
-    return true;
-  }
-  return false;
+  var existing = computation._vueWatcher.newDepIds.has(self._vueDep.id) || computation._vueWatcher.depIds.has(self._vueDep.id);
+  computation._vueWatcher.addDep(self._vueDep);
+  return existing;
 };
 
 // http://docs.meteor.com/#dependency_changed
@@ -427,8 +477,7 @@ Tracker.Dependency.prototype.depend = function (computation) {
  */
 Tracker.Dependency.prototype.changed = function () {
   var self = this;
-  for (var id in self._dependentsById)
-    self._dependentsById[id].invalidate();
+  self._vueDep.notify()
 };
 
 // http://docs.meteor.com/#dependency_hasdependents
@@ -440,9 +489,7 @@ Tracker.Dependency.prototype.changed = function () {
  */
 Tracker.Dependency.prototype.hasDependents = function () {
   var self = this;
-  for(var id in self._dependentsById)
-    return true;
-  return false;
+  return !!self._vueDep.subs.length;
 };
 
 // http://docs.meteor.com/#tracker_flush
@@ -452,90 +499,14 @@ Tracker.Dependency.prototype.hasDependents = function () {
  * @locus Client
  */
 Tracker.flush = function (options) {
-  Tracker._runFlush({ finishSynchronously: true,
-                      throwFirstError: options && options._throwFirstError });
-};
-
-// Run all pending computations and afterFlush callbacks.  If we were not called
-// directly via Tracker.flush, this may return before they're all done to allow
-// the event loop to run a little before continuing.
-Tracker._runFlush = function (options) {
-  // XXX What part of the comment below is still true? (We no longer
-  // have Spark)
-  //
-  // Nested flush could plausibly happen if, say, a flush causes
-  // DOM mutation, which causes a "blur" event, which runs an
-  // app event handler that calls Tracker.flush.  At the moment
-  // Spark blocks event handlers during DOM mutation anyway,
-  // because the LiveRange tree isn't valid.  And we don't have
-  // any useful notion of a nested flush.
-  //
-  // https://app.asana.com/0/159908330244/385138233856
-  if (inFlush)
-    throw new Error("Can't call Tracker.flush while flushing");
-
-  if (inCompute)
-    throw new Error("Can't flush inside Tracker.autorun");
-
-  options = options || {};
-
-  inFlush = true;
-  willFlush = true;
-  throwFirstError = !! options.throwFirstError;
-
-  var recomputedCount = 0;
-  var finishedTry = false;
+  throwFirstError = options && options._throwFirstError;
   try {
-    while (pendingComputations.length ||
-           afterFlushCallbacks.length) {
-
-      // recompute all pending computations
-      while (pendingComputations.length) {
-        var comp = pendingComputations.shift();
-        comp._recompute();
-        if (comp._needsRecompute()) {
-          pendingComputations.unshift(comp);
-        }
-
-        if (! options.finishSynchronously && ++recomputedCount > 1000) {
-          finishedTry = true;
-          return;
-        }
-      }
-
-      if (afterFlushCallbacks.length) {
-        // call one afterFlush callback, which may
-        // invalidate more computations
-        var func = afterFlushCallbacks.shift();
-        try {
-          func();
-        } catch (e) {
-          _throwOrLog("afterFlush", e);
-        }
-      }
-    }
-    finishedTry = true;
-  } finally {
-    if (! finishedTry) {
-      // we're erroring due to throwFirstError being true.
-      inFlush = false; // needed before calling `Tracker.flush()` again
-      // finish flushing
-      Tracker._runFlush({
-        finishSynchronously: options.finishSynchronously,
-        throwFirstError: false
-      });
-    }
-    willFlush = false;
-    inFlush = false;
-    if (pendingComputations.length || afterFlushCallbacks.length) {
-      // We're yielding because we ran a bunch of computations and we aren't
-      // required to finish synchronously, so we'd like to give the event loop a
-      // chance. We should flush again soon.
-      if (options.finishSynchronously) {
-        throw new Error("still have more to do?");  // shouldn't happen
-      }
-      setTimeout(requireFlush, 10);
-    }
+    // Tracker flush does not limit the number of updates, but watcher does.
+    // So we set the limit to 10000 which is infinity for most practical purposes.
+    Vue.observer.forceFlush((options && options._maxUpdateCount) || 10000);
+  }
+  finally {
+    throwFirstError = false;
   }
 };
 
@@ -562,7 +533,7 @@ Tracker._runFlush = function (options) {
  * one argument: the Computation object that will be returned.
  * @param {Object} [options]
  * @param {Function} options.onError Optional. The function to run when an error
- * happens in the Computation. The only argument it recieves is the Error
+ * happens in the Computation. The only argument it receives is the Error
  * thrown. Defaults to the error being logged to the console.
  * @returns {Tracker.Computation}
  */
@@ -572,9 +543,7 @@ Tracker.autorun = function (f, options) {
 
   options = options || {};
 
-  constructingComputation = true;
-  var c = new Tracker.Computation(
-    f, Tracker.currentComputation, options.onError);
+  var c = new Tracker.Computation(f, options.onError, null, privateObject);
 
   if (Tracker.active)
     Tracker.onInvalidate(function () {
@@ -597,12 +566,13 @@ Tracker.autorun = function (f, options) {
  * @param {Function} func A function to call immediately.
  */
 Tracker.nonreactive = function (f) {
-  var previous = Tracker.currentComputation;
-  setCurrentComputation(null);
+  var previous = Vue.observer.Dep.target;
+  Vue.observer.Dep.target = null;
   try {
     return f();
-  } finally {
-    setCurrentComputation(previous);
+  }
+  finally {
+    Vue.observer.Dep.target = previous;
   }
 };
 
@@ -614,8 +584,9 @@ Tracker.nonreactive = function (f) {
  * @param {Function} callback A callback function that will be invoked as `func(c)`, where `c` is the computation on which the callback is registered.
  */
 Tracker.onInvalidate = function (f) {
-  if (! Tracker.active)
+  if (!Tracker.active) {
     throw new Error("Tracker.onInvalidate requires a currentComputation");
+  }
 
   Tracker.currentComputation.onInvalidate(f);
 };
@@ -628,6 +599,11 @@ Tracker.onInvalidate = function (f) {
  * @param {Function} callback A function to call at flush time.
  */
 Tracker.afterFlush = function (f) {
-  afterFlushCallbacks.push(f);
-  requireFlush();
+  Vue.observer.afterFlush(function () {
+    try {
+      f();
+    } catch (e) {
+      _throwOrLog("afterFlush", e);
+    }
+  });
 };
