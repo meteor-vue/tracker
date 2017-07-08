@@ -14,7 +14,7 @@ dependencies:
     - npm install selenium-webdriver@2.47.0 mkdirp
     - cd test-app; meteor npm install --save git://github.com/mitar/vue.git#tracker-compatibility-build
     - ln -s ../../meteor/packages/minimongo test-app/packages/minimongo
-    - sed -i '' "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-app/packages/tracker/package.js
+    - sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-app/packages/tracker/package.js
 test:
   override:
     - cd test-app; ../meteor-test-runner/test-all.sh
