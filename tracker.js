@@ -510,6 +510,15 @@ Tracker.flush = function (options) {
   }
 };
 
+/**
+ * @summary True if we are computing a computation now, either first time or recompute.  This matches Tracker.active unless we are inside Tracker.nonreactive, which nullfies currentComputation even though an enclosing computation may still be running.
+ * @locus Client
+ * @returns {Boolean}
+ */
+Tracker.inFlush = function () {
+  return Vue.observer.isFlushing();
+}
+
 // http://docs.meteor.com/#tracker_autorun
 //
 // Run f(). Record its dependencies. Rerun it whenever the
