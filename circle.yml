@@ -7,7 +7,7 @@ machine:
     version: 6.11.0
 dependencies:
   override:
-    - curl --silent https://install.meteor.com | /bin/sh
+    - curl --silent https://install.meteor.com | /bin/sh | cat
     - METEOR_HEADLESS=true meteor create --bare test-app
     - mkdir -p test-app/packages/tracker/
     - ls -1 | egrep -v '^test-app$|^meteor' | xargs -I {} mv {} test-app/packages/tracker/
