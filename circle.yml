@@ -7,8 +7,8 @@ machine:
     version: 6.11.0
 dependencies:
   override:
-    - curl https://install.meteor.com | /bin/sh
-    - meteor create --bare test-app
+    - curl --silent https://install.meteor.com | /bin/sh
+    - METEOR_HEADLESS=true meteor create --bare test-app
     - mkdir -p test-app/packages/tracker/
     - ls -1 | egrep -v '^test-app$|^meteor' | xargs -I {} mv {} test-app/packages/tracker/
     - npm install selenium-webdriver@2.47.0 mkdirp
