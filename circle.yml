@@ -1,18 +1,20 @@
 checkout:
   post:
     - git clone --recursive -b master https://github.com/meteor/meteor.git
-    - rm -rf meteor/packages/tracker/*
-    - ls -1 | grep -v meteor | xargs -I {} mv {} meteor/packages/tracker/
     - git clone --recursive -b master https://github.com/tozd/meteor-test-runner.git
 machine:
   node:
     version: 6.11.0
 dependencies:
   override:
+    - curl https://install.meteor.com | /bin/sh
+    - meteor create --bare test-app
+    - mkdir -p test-app/packages/tracker/
+    - ls -1 | egrep -v '^test-app$|^meteor' | xargs -I {} mv {} test-app/packages/tracker/
     - npm install selenium-webdriver@2.47.0 mkdirp
-    - npm install git://github.com/mitar/vue.git#tracker-compatibility-build
-    - ./meteor/meteor --get-ready
+    - cd test-app; meteor npm install --save git://github.com/mitar/vue.git#tracker-compatibility-build
+    - ln -s ../../meteor/packages/minimongo test-app/packages/minimongo
+    - sed -i '' "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-app/packages/tracker/package.js
 test:
   override:
-    - cd meteor; METEOR_COMMAND=./meteor ../meteor-test-runner/test-package.sh packages/tracker
-    - cd meteor; METEOR_COMMAND=./meteor ../meteor-test-runner/test-package.sh packages/minimongo
+    - cd test-app; ../meteor-test-runner/test-all.sh
