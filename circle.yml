@@ -2,6 +2,9 @@ checkout:
   post:
     - git clone --recursive -b master https://github.com/meteor/meteor.git
     - git clone --recursive -b master https://github.com/tozd/meteor-test-runner.git
+    - git clone --recursive -b master https://github.com/peerlibrary/meteor-computed-field peerlibrary:computed-field
+    - git clone --recursive -b master https://github.com/peerlibrary/meteor-reactive-field peerlibrary:reactive-field
+    - git clone --recursive -b master https://github.com/peerlibrary/meteor-blaze-components peerlibrary:blaze-components
 machine:
   node:
     version: 6.11.0
@@ -10,6 +13,9 @@ dependencies:
     - curl --silent https://install.meteor.com | /bin/sh | cat
     - METEOR_HEADLESS=true meteor create --bare test-app
     - mkdir -p test-app/packages/tracker/
+    - mv peerlibrary:computed-field test-app/packages/
+    - mv peerlibrary:reactive-field test-app/packages/
+    - mv peerlibrary:blaze-components test-app/packages/
     - ls -1 | egrep -v '^test-app$|^meteor' | xargs -I {} mv {} test-app/packages/tracker/
     - npm install selenium-webdriver@2.47.0 mkdirp
     - cd test-app; meteor npm install --save git://github.com/mitar/vue.git#tracker-compatibility-build
