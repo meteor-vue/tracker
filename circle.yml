@@ -18,7 +18,7 @@ dependencies:
     - mv peerlibrary:blaze-components test-app/packages/
     - ls -1 | egrep -v '^test-app$|^meteor' | xargs -I {} mv {} test-app/packages/tracker/
     - npm install selenium-webdriver@2.47.0 mkdirp
-    - cd test-app; meteor npm install --save git://github.com/mitar/vue.git#tracker-compatibility-build
+    - cd test-app; meteor npm install --save git://github.com/mitar/vue.git#meteor
     - ln -s ../../meteor/packages/minimongo test-app/packages/minimongo
     - sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-app/packages/tracker/package.js
 test:
