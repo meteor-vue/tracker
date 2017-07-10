@@ -2,6 +2,7 @@ checkout:
   post:
     - git clone --recursive -b master https://github.com/meteor/meteor.git
     - git clone --recursive -b master https://github.com/tozd/meteor-test-runner.git
+    # These packages' tests are used to further test Tracker.
     - git clone --recursive -b master https://github.com/peerlibrary/meteor-computed-field peerlibrary:computed-field
     - git clone --recursive -b master https://github.com/peerlibrary/meteor-reactive-field peerlibrary:reactive-field
     - git clone --recursive -b master https://github.com/peerlibrary/meteor-blaze-components peerlibrary:blaze-components
