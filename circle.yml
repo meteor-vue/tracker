@@ -13,17 +13,26 @@ machine:
 dependencies:
   override:
     - curl --silent https://install.meteor.com | /bin/sh | cat
-    - METEOR_HEADLESS=true meteor create --bare test-app
-    - mkdir -p test-app/packages/tracker/
-    - mv peerlibrary:computed-field test-app/packages/
-    - mv peerlibrary:reactive-field test-app/packages/
-    - mv peerlibrary:blaze-components test-app/packages/
-    - mv peerlibrary:data-lookup test-app/packages/
-    - ls -1 | egrep -v '^test-app$|^meteor' | xargs -I {} mv {} test-app/packages/tracker/
+    - METEOR_HEADLESS=true meteor create --bare test-vue
+    - mkdir -p test-vue/packages/tracker/
+    - mv peerlibrary:computed-field test-vue/packages/
+    - mv peerlibrary:reactive-field test-vue/packages/
+    - mv peerlibrary:blaze-components test-vue/packages/
+    - mv peerlibrary:data-lookup test-vue/packages/
+    - ls -1 | egrep -v '^test-vue$|^meteor' | xargs -I {} mv {} test-vue/packages/tracker/
     - npm install selenium-webdriver@2.47.0 mkdirp
-    - cd test-app; meteor npm install --save git://github.com/mitar/vue.git#meteor
-    - ln -s ../../meteor/packages/minimongo test-app/packages/minimongo
-    - sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-app/packages/tracker/package.js
+    - cd test-vue; meteor npm install --save git://github.com/mitar/vue.git#meteor
+    - ln -s ../../meteor/packages/minimongo test-vue/packages/minimongo
+    - sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-vue/packages/tracker/package.js
+    - METEOR_HEADLESS=true meteor create --bare test-normal
+    - mkdir -p test-normal/packages/
+    - ln -s ../../meteor/packages/tracker test-normal/packages/tracker
+    - ln -s ../../meteor/packages/minimongo test-normal/packages/minimongo
+    - ln -s ../../test-vue/packages/peerlibrary:computed-field test-normal/packages/peerlibrary:computed-field
+    - ln -s ../../test-vue/packages/peerlibrary:reactive-field test-normal/packages/peerlibrary:reactive-field
+    - ln -s ../../test-vue/packages/peerlibrary:blaze-components test-normal/packages/peerlibrary:blaze-components
+    - ln -s ../../test-vue/packages/peerlibrary:data-lookup test-normal/packages/peerlibrary:data-lookup
 test:
   override:
-    - cd test-app; ../meteor-test-runner/test-all.sh
+    - cd test-normal; XUNIT_PREFIX=normal ../meteor-test-runner/test-all.sh
+    - cd test-vue; XUNIT_PREFIX=vue ../meteor-test-runner/test-all.sh
