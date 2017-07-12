@@ -409,7 +409,7 @@ Tracker.Computation.prototype.flush = function () {
   if (self._recomputing)
     return;
 
-  self._vueWatcher.run();
+  self._vueWatcher.get(true);
 };
 
 /**
@@ -575,13 +575,12 @@ Tracker.autorun = function (f, options) {
  * @param {Function} func A function to call immediately.
  */
 Tracker.nonreactive = function (f) {
-  var previous = Vue.observer.Dep.target;
-  Vue.observer.Dep.target = null;
+  Vue.observer.pushTarget(null);
   try {
     return f();
   }
   finally {
-    Vue.observer.Dep.target = previous;
+    Vue.observer.popTarget();
   }
 };
 
