@@ -10,6 +10,9 @@ import Vue from 'vue';
  */
 Tracker = {};
 
+// Allows checking that this is Vue-enabled Tracker.
+Tracker._vue = true;
+
 // http://docs.meteor.com/#tracker_active
 
 /**
