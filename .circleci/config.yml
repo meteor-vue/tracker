@@ -1,0 +1,40 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: node:6.11.0
+    steps:
+      - checkout
+      - run:
+          command: |
+            git clone --recursive -b master https://github.com/meteor/meteor.git
+            git clone --recursive -b master https://github.com/tozd/meteor-test-runner.git
+            # These packages' tests are used to further test Tracker.
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-computed-field peerlibrary:computed-field
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-reactive-field peerlibrary:reactive-field
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-blaze-components peerlibrary:blaze-components
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-data-lookup peerlibrary:data-lookup
+      - run:
+          command: |
+            curl --silent https://install.meteor.com | /bin/sh | cat
+            METEOR_HEADLESS=true meteor create --bare test-vue
+            mkdir -p test-vue/packages/tracker/
+            mv peerlibrary:computed-field test-vue/packages/
+            mv peerlibrary:reactive-field test-vue/packages/
+            mv peerlibrary:blaze-components test-vue/packages/
+            mv peerlibrary:data-lookup test-vue/packages/
+            ls -1 | egrep -v '^test-vue$|^meteor' | xargs -I {} mv {} test-vue/packages/tracker/
+            npm install selenium-webdriver@2.47.0 mkdirp
+            cd test-vue; meteor npm install --save git://github.com/mitar/vue.git#meteor
+            ln -s ../../meteor/packages/minimongo test-vue/packages/minimongo
+            sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-vue/packages/tracker/package.js
+            METEOR_HEADLESS=true meteor create --bare test-normal
+            mkdir -p test-normal/packages/
+            ln -s ../../meteor/packages/tracker test-normal/packages/tracker
+            ln -s ../../meteor/packages/minimongo test-normal/packages/minimongo
+            ln -s ../../test-vue/packages/peerlibrary:computed-field test-normal/packages/peerlibrary:computed-field
+            ln -s ../../test-vue/packages/peerlibrary:reactive-field test-normal/packages/peerlibrary:reactive-field
+            ln -s ../../test-vue/packages/peerlibrary:blaze-components test-normal/packages/peerlibrary:blaze-components
+            ln -s ../../test-vue/packages/peerlibrary:data-lookup test-normal/packages/peerlibrary:data-lookup
+      - run: cd test-normal; XUNIT_PREFIX=normal ../meteor-test-runner/test-all.sh
+      - run: cd test-vue; XUNIT_PREFIX=vue ../meteor-test-runner/test-all.sh
