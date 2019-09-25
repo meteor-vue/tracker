@@ -27,7 +27,7 @@ jobs:
             mv peerlibrary:data-lookup test-vue/packages/
             ls -1 | egrep -v '^test-vue$|^meteor' | xargs -I {} mv {} test-vue/packages/tracker/
             npm install selenium-webdriver@2.47.0 mkdirp
-            cd test-vue; meteor npm install --save git://github.com/meteor-vue/vue.git#meteor
+            cd test-vue; meteor npm install --save git://github.com/meteor-vue/vue.git#meteor; cd ..
             ln -s ../../meteor/packages/minimongo test-vue/packages/minimongo
             sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-vue/packages/tracker/package.js
             METEOR_HEADLESS=true meteor create --bare test-normal
