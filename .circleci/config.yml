@@ -3,6 +3,8 @@ jobs:
   build:
     docker:
       - image: node:6.11.0
+    environment:
+      METEOR_ALLOW_SUPERUSER: true
     steps:
       - checkout
       - run:
