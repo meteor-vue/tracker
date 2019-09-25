@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: node:6.11.0
+      - image: tozd/meteor-testing:ubuntu-xenial
     environment:
       METEOR_ALLOW_SUPERUSER: true
     steps:
@@ -18,7 +18,6 @@ jobs:
             git clone --recursive -b master https://github.com/peerlibrary/meteor-data-lookup.git peerlibrary:data-lookup
       - run:
           command: |
-            curl --silent https://install.meteor.com | /bin/sh | cat
             METEOR_HEADLESS=true meteor create --bare test-vue
             mkdir -p test-vue/packages/tracker/
             mv peerlibrary:computed-field test-vue/packages/
@@ -26,10 +25,12 @@ jobs:
             mv peerlibrary:blaze-components test-vue/packages/
             mv peerlibrary:data-lookup test-vue/packages/
             ls -1 | egrep -v '^test-vue$|^meteor' | xargs -I {} mv {} test-vue/packages/tracker/
-            npm install selenium-webdriver@2.47.0 mkdirp
             cd test-vue; meteor npm install --save git://github.com/meteor-vue/vue.git#meteor; cd ..
             ln -s ../../meteor/packages/minimongo test-vue/packages/minimongo
             sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-vue/packages/tracker/package.js
+      - run: cd test-vue; XUNIT_PREFIX=vue ../meteor-test-runner/test-all.sh
+      - run:
+          command: |
             METEOR_HEADLESS=true meteor create --bare test-normal
             mkdir -p test-normal/packages/
             ln -s ../../meteor/packages/tracker test-normal/packages/tracker
@@ -39,4 +40,3 @@ jobs:
             ln -s ../../test-vue/packages/peerlibrary:blaze-components test-normal/packages/peerlibrary:blaze-components
             ln -s ../../test-vue/packages/peerlibrary:data-lookup test-normal/packages/peerlibrary:data-lookup
       - run: cd test-normal; XUNIT_PREFIX=normal ../meteor-test-runner/test-all.sh
-      - run: cd test-vue; XUNIT_PREFIX=vue ../meteor-test-runner/test-all.sh
